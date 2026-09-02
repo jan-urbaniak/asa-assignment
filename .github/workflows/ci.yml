@@ -68,12 +68,12 @@ jobs:
           path: reports/sast.semgrep.json
           if-no-files-found: error
 
-      - name: Fail on critical SAST findings
+      - name: Fail on Semgrep ERROR findings
         if: always()
         run: |
           jq -e '
             [.results[]
-             | select((.extra.metadata.severity? // .extra.severity? // "") | ascii_upcase == "CRITICAL")]
+             | select(.extra.severity == "ERROR")]
             | length == 0
           ' reports/sast.semgrep.json
 
