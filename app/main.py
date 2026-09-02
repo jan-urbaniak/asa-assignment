@@ -1,12 +1,13 @@
 import logging
+import secrets
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import models
@@ -107,6 +108,29 @@ class ScanOut(BaseModel):
         from_attributes = True
 
 
+class ShareCreate(BaseModel):
+    password: Optional[str] = Field(default=None, min_length=1, max_length=128)
+
+
+class ShareOut(BaseModel):
+    share_url: str
+
+
+class PublicScanOut(BaseModel):
+    id: int
+    title: str
+    description: Optional[str]
+    severity: str
+    status: str
+    cve_id: Optional[str]
+    affected_component: str
+    remediation_notes: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -200,6 +224,33 @@ def create_scan(
     return scan
 
 
+@app.post("/scans/{scan_id}/share", response_model=ShareOut, status_code=201)
+def create_share_link(
+    scan_id: int,
+    payload: ShareCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    scan = db.query(models.ScanResult).filter(
+        models.ScanResult.id == scan_id,
+        models.ScanResult.owner_id == current_user.id,
+    ).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    share_link = models.SharedScanLink(
+        token=secrets.token_urlsafe(32),
+        scan_id=scan.id,
+        password_hash=get_password_hash(payload.password) if payload.password else None,
+        expires_at=datetime.utcnow() + timedelta(hours=24),
+    )
+    db.add(share_link)
+    db.commit()
+    db.refresh(share_link)
+    return ShareOut(share_url=f"{str(request.base_url).rstrip('/')}/share/{share_link.token}")
+
+
 @app.get("/scans/search")
 def search_scans(
     q: str,
@@ -222,6 +273,20 @@ def get_scan(
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
     return scan
+
+
+@app.get("/share/{token}", response_model=PublicScanOut)
+def get_shared_scan(token: str, password: Optional[str] = None, db: Session = Depends(get_db)):
+    share_link = db.query(models.SharedScanLink).filter(
+        models.SharedScanLink.token == token,
+    ).first()
+    if not share_link or share_link.expires_at <= datetime.utcnow():
+        raise HTTPException(status_code=404, detail="Shared scan not found")
+    if share_link.password_hash and (
+        password is None or not verify_password(password, share_link.password_hash)
+    ):
+        raise HTTPException(status_code=401, detail="Password required or invalid")
+    return share_link.scan
 
 
 @app.patch("/scans/{scan_id}", response_model=ScanOut)
