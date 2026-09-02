@@ -43,18 +43,78 @@ jobs:
         run: npm test
         working-directory: notify
 
+  sast:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Semgrep Community Edition
+        run: pipx install semgrep
+
+      - name: Run Semgrep for Python and Node.js source code
+        id: semgrep
+        continue-on-error: true
+        run: |
+          mkdir -p reports
+          semgrep scan --config p/default --json \
+            --output reports/sast.semgrep.json app notify/src
+
+      - name: Upload Semgrep report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sast.semgrep.json
+          path: reports/sast.semgrep.json
+          if-no-files-found: error
+
+      - name: Fail on critical SAST findings
+        if: always()
+        run: |
+          jq -e '
+            [.results[]
+             | select((.extra.metadata.severity? // .extra.severity? // "") | ascii_upcase == "CRITICAL")]
+            | length == 0
+          ' reports/sast.semgrep.json
+
+  sca:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create report directory
+        run: mkdir -p reports
+
+      - name: Run OSV-Scanner for Python and Node.js dependencies
+        id: osv
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --volume "$PWD:/src" \
+            --workdir /src \
+            ghcr.io/google/osv-scanner:latest \
+            scan -L requirements.txt -L notify/package-lock.json --format json \
+            --output-file reports/sca.osv-scanner.json
+
+      - name: Upload OSV-Scanner report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sca.osv-scanner.json
+          path: reports/sca.osv-scanner.json
+          if-no-files-found: error
+
+      - name: Fail on SCA findings
+        if: always()
+        run: |
+          jq -e '
+            [.results[]?.packages[]?.groups[]?.ids[]?]
+            | length == 0
+          ' reports/sca.osv-scanner.json
+
   # TODO (candidates): Add the following security scanning jobs.
-  # Tool selection is your decision — document your choices in findings.md.
-  #
-  # sast:
-  #   Static Application Security Testing against app/ source code
-  #   Upload JSON report as a build artifact named sast.<tool>.json
-  #   Build should fail on critical findings
-  #
-  # sca:
-  #   Dependency / Software Composition Analysis against requirements.txt
-  #   Upload JSON report as a build artifact named sca.<tool>.json
-  #   Build should fail on critical or high severity CVEs
   #
   # container-scan:
   #   Build the Docker image, then scan it for vulnerabilities and misconfigurations
