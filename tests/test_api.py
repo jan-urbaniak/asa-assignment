@@ -156,7 +156,7 @@ def test_create_and_retrieve_unprotected_share_link():
 
     assert response.status_code == 201
     share_url = response.json()["share_url"]
-    assert share_url.startswith("http://reports.example.test/share/")
+    assert share_url.startswith("http://localhost:8000/share/")
     shared_scan = client.get(share_url).json()
     assert shared_scan["id"] == scan_id
     assert "owner_id" not in shared_scan

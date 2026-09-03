@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 import models
 from auth import create_access_token, get_current_user, get_password_hash, verify_password
-from config import NOTIFY_SERVICE_KEY, NOTIFY_SERVICE_URL
+from config import NOTIFY_SERVICE_KEY, NOTIFY_SERVICE_URL, PUBLIC_BASE_URL
 from database import engine, get_db
 
 logging.basicConfig(level=logging.INFO)
@@ -226,7 +226,6 @@ def create_scan(
 def create_share_link(
     scan_id: int,
     payload: ShareCreate,
-    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -246,7 +245,7 @@ def create_share_link(
     db.add(share_link)
     db.commit()
     db.refresh(share_link)
-    return ShareOut(share_url=f"{str(request.base_url).rstrip('/')}/share/{share_link.token}")
+    return ShareOut(share_url=f"{PUBLIC_BASE_URL}/share/{share_link.token}")
 
 
 @app.get("/scans/search", response_model=List[ScanOut])

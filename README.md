@@ -49,6 +49,7 @@ The API must be started from inside the `app/` directory — the modules use bar
 cd app
 export SECRET_KEY="<long-random-jwt-signing-secret>"
 export NOTIFY_SERVICE_KEY="<shared-long-random-secret>"
+export PUBLIC_BASE_URL="http://localhost:8000"
 uvicorn main:app --reload
 ```
 
@@ -95,7 +96,7 @@ Add the following endpoints to the app:
 | `POST` | `/scans/{scan_id}/share` | Bearer token  | Generate a share token for a scan. Accepts optional `password` in the request body. Returns `{ "share_url": "..." }`     |
 | `GET`  | `/share/{token}`         | None (public) | Return the scan data if the token is valid and not expired. If password-protected, require a `password` query parameter. |
 
-Implementation choices are yours. We will read and evaluate the code you write here — including the security properties of your implementation. For the `share_url` value, use the incoming request's host, or hard-code `http://localhost:8000` for the prototype — document whichever you choose.
+Implementation choices are yours. We will read and evaluate the code you write here — including the security properties of your implementation. The `share_url` value is built from the trusted `PUBLIC_BASE_URL` deployment setting, defaulting to `http://localhost:8000` for the prototype. It never uses the incoming request's `Host` header.
 
 ---
 
