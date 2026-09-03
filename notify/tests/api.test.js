@@ -88,10 +88,15 @@ test('POST /webhooks rejects non-HTTPS and private destinations', async () => {
     url: 'https://169.254.169.254/latest/meta-data',
     events: ['scan.created'],
   });
+  const ipv4MappedIpv6Target = await post('/webhooks', {
+    url: 'https://[::ffff:10.0.0.1]/hook',
+    events: ['scan.created'],
+  });
 
   assert.equal(httpTarget.status, 400);
   assert.equal(loopbackTarget.status, 400);
   assert.equal(metadataTarget.status, 400);
+  assert.equal(ipv4MappedIpv6Target.status, 400);
 });
 
 

@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const dns = require('dns').promises;
 const net = require('net');
+const ipaddr = require('ipaddr.js');
 const { v4: uuidv4 } = require('uuid');
 const { dispatch } = require('./dispatcher');
 const config = require('./config');
@@ -13,29 +14,12 @@ app.use(express.json());
 const webhooks = new Map();
 
 
-function isPrivateAddress(address) {
-  if (net.isIP(address) === 4) {
-    const octets = address.split('.').map(Number);
-    return octets[0] === 0
-      || octets[0] === 10
-      || octets[0] === 127
-      || octets[0] >= 224
-      || (octets[0] === 169 && octets[1] === 254)
-      || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
-      || (octets[0] === 192 && octets[1] === 168);
+function isPublicAddress(address) {
+  try {
+    return ipaddr.process(address).range() === 'unicast';
+  } catch {
+    return false;
   }
-
-  if (net.isIP(address) === 6) {
-    const normalized = address.toLowerCase();
-    return normalized === '::1'
-      || normalized === '::'
-      || normalized.startsWith('fc')
-      || normalized.startsWith('fd')
-      || normalized.startsWith('fe80:')
-      || normalized.startsWith('::ffff:127.');
-  }
-
-  return true;
 }
 
 
@@ -51,13 +35,14 @@ async function validateWebhookUrl(value) {
     return false;
   }
 
-  if (net.isIP(target.hostname)) {
-    return !isPrivateAddress(target.hostname);
+  const hostname = target.hostname.replace(/^\[|\]$/g, '');
+  if (net.isIP(hostname)) {
+    return isPublicAddress(hostname);
   }
 
   try {
-    const addresses = await dns.lookup(target.hostname, { all: true, verbatim: true });
-    return addresses.length > 0 && addresses.every(({ address }) => !isPrivateAddress(address));
+    const addresses = await dns.lookup(hostname, { all: true, verbatim: true });
+    return addresses.length > 0 && addresses.every(({ address }) => isPublicAddress(address));
   } catch {
     return false;
   }
