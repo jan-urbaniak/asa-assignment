@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+os.environ.setdefault("SECRET_KEY", "test-jwt-signing-key")
 os.environ.setdefault("NOTIFY_SERVICE_KEY", "test-notify-service-key")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 

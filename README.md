@@ -47,6 +47,7 @@ The API must be started from inside the `app/` directory — the modules use bar
 
 ```bash
 cd app
+export SECRET_KEY="<long-random-jwt-signing-secret>"
 export NOTIFY_SERVICE_KEY="<shared-long-random-secret>"
 uvicorn main:app --reload
 ```
