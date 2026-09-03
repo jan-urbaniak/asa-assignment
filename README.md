@@ -84,7 +84,7 @@ npm test
 Build the pinned Python 3.11 image from the repository root:
 
 ```bash
-docker build --tag vulntracker-api:local .
+docker build --build-arg APP_PORT=8000 --tag vulntracker-api:local .
 ```
 
 Run it while supplying secrets at runtime from a local `.env` file. The file is

@@ -174,7 +174,60 @@ jobs:
             | length == 0
           ' reports/sca.osv-scanner.json
 
-  # TODO (candidate): Add the following security scanning job.
-  # iac-scan:
-  #   Scan the Helm chart or Terraform configuration for security misconfigurations
-  #   Upload JSON report as a build artifact named iac.<tool>.json
+  iac-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create IaC report directory
+        run: mkdir -p reports
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.5
+
+      - name: Install Checkov
+        run: pipx install checkov==3.2.500
+
+      - name: Set up TFLint
+        uses: terraform-linters/setup-tflint@v6.3.0
+        with:
+          tflint_version: v0.61.0
+
+      - name: Lint Terraform
+        working-directory: terraform
+        run: |
+          tflint --init
+          tflint --format compact
+
+      - name: Validate Terraform
+        working-directory: terraform
+        run: |
+          terraform fmt -check
+          terraform init -backend=false
+          terraform validate
+
+      - name: Scan Terraform with Checkov
+        id: checkov
+        continue-on-error: true
+        run: |
+          checkov -d terraform \
+            --framework terraform \
+            --output json \
+            --quiet \
+            > reports/iac.checkov.json
+
+      - name: Upload Checkov IaC report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iac.checkov.json
+          path: reports/iac.checkov.json
+          if-no-files-found: error
+      - name: Fail on Checkov findings
+        if: always()
+        run: |
+          jq -e '([.results.failed_checks[]?] | length) == 0' \
+            reports/iac.checkov.json
