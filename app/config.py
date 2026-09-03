@@ -4,20 +4,20 @@ from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 
 
-def _get_secret(environment_name, key_vault_name):
-	value = os.environ.get(environment_name)
-	if value:
-		return value
+def _get_secret(environment_name: str, secret_name_env_var: str) -> str:
+    value = os.environ.get(environment_name)
+    if value:
+        return value
 
-	vault_url = os.environ.get("AZURE_KEY_VAULT_URL")
-	if not vault_url:
-		raise RuntimeError(
-			f"{environment_name} or AZURE_KEY_VAULT_URL must be configured"
-		)
+    vault_url = os.environ.get("AZURE_KEY_VAULT_URL")
+    secret_name = os.environ.get(secret_name_env_var)
+    if not vault_url or not secret_name:
+        raise RuntimeError(
+            f"{environment_name} must be set, or both AZURE_KEY_VAULT_URL and {secret_name_env_var} must be configured"
+        )
 
-	client = SecretClient(vault_url=vault_url, credential=DefaultAzureCredential())
-	secret_name = os.environ.get(key_vault_name, key_vault_name)
-	return client.get_secret(secret_name).value
+    client = SecretClient(vault_url=vault_url, credential=DefaultAzureCredential())
+    return client.get_secret(secret_name).value
 
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./vulntracker.db")
