@@ -1,6 +1,8 @@
 import os
 import sys
+from base64 import urlsafe_b64encode
 from datetime import datetime, timedelta
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -53,6 +55,12 @@ def auth_headers(token):
     return {"Authorization": f"Bearer {token}"}
 
 
+def unsigned_token(payload):
+    encoded_header = urlsafe_b64encode(b'{"alg":"none","typ":"JWT"}').rstrip(b"=").decode()
+    encoded_payload = urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+    return f"{encoded_header}.{encoded_payload}."
+
+
 def create_scan_for_user(token, title="Shared finding"):
     response = client.post("/scans", json={
         "title": title,
@@ -100,6 +108,14 @@ def test_login_wrong_password():
     client.post("/auth/register", json={"username": "alice", "email": "alice@example.com", "password": "pw"})
     resp = client.post("/auth/login", json={"username": "alice", "password": "wrong"})
     assert resp.status_code == 401
+
+
+def test_unsigned_jwt_is_rejected():
+    token = unsigned_token({"sub": "alice", "exp": 4102444800})
+
+    response = client.get("/scans", headers=auth_headers(token))
+
+    assert response.status_code == 401
 
 
 def test_create_scan():
