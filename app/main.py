@@ -1,18 +1,20 @@
 import logging
+import secrets
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 import models
 from auth import create_access_token, get_current_user, get_password_hash, verify_password
-from config import NOTIFY_SERVICE_URL
-from database import engine, get_db, search_scans_by_query
+from config import NOTIFY_SERVICE_KEY, NOTIFY_SERVICE_URL, PUBLIC_BASE_URL
+from database import engine, get_db
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -107,6 +109,29 @@ class ScanOut(BaseModel):
         from_attributes = True
 
 
+class ShareCreate(BaseModel):
+    password: Optional[str] = Field(default=None, min_length=1, max_length=128)
+
+
+class ShareOut(BaseModel):
+    share_url: str
+
+
+class PublicScanOut(BaseModel):
+    id: int
+    title: str
+    description: Optional[str]
+    severity: str
+    status: str
+    cve_id: Optional[str]
+    affected_component: str
+    remediation_notes: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -116,6 +141,7 @@ def _fire_notify(event: str, payload: dict) -> None:
         httpx.post(
             f"{NOTIFY_SERVICE_URL}/notify",
             json={"event": event, "payload": payload},
+            headers={"X-Service-Key": NOTIFY_SERVICE_KEY},
             timeout=5.0,
         )
     except Exception as exc:
@@ -145,14 +171,10 @@ def register(payload: UserRegister, db: Session = Depends(get_db)):
 
 @app.post("/auth/login")
 def login(payload: UserLogin, db: Session = Depends(get_db)):
-    logger.info("Login attempt — username: %s password: %s", payload.username, payload.password)
+    logger.info("Login attempt — username: %s", payload.username)
     user = db.query(models.User).filter(models.User.username == payload.username).first()
     if not user or not verify_password(payload.password, user.hashed_password):
-        logger.warning(
-            "Failed login — username: '%s' password: '%s'",
-            payload.username,
-            payload.password,
-        )
+        logger.warning("Failed login — username: '%s'", payload.username)
         raise HTTPException(status_code=401, detail="Incorrect username or password")
     token = create_access_token({"sub": user.username})
     return {"access_token": token, "token_type": "bearer"}
@@ -200,7 +222,33 @@ def create_scan(
     return scan
 
 
-@app.get("/scans/search")
+@app.post("/scans/{scan_id}/share", response_model=ShareOut, status_code=201)
+def create_share_link(
+    scan_id: int,
+    payload: ShareCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    scan = db.query(models.ScanResult).filter(
+        models.ScanResult.id == scan_id,
+        models.ScanResult.owner_id == current_user.id,
+    ).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    share_link = models.SharedScanLink(
+        token=secrets.token_urlsafe(32),
+        scan_id=scan.id,
+        password_hash=get_password_hash(payload.password) if payload.password else None,
+        expires_at=datetime.utcnow() + timedelta(hours=24),
+    )
+    db.add(share_link)
+    db.commit()
+    db.refresh(share_link)
+    return ShareOut(share_url=f"{PUBLIC_BASE_URL}/share/{share_link.token}")
+
+
+@app.get("/scans/search", response_model=List[ScanOut])
 def search_scans(
     q: str,
     db: Session = Depends(get_db),
@@ -208,8 +256,21 @@ def search_scans(
 ):
     if not q or len(q) < 2:
         raise HTTPException(status_code=400, detail="Search query must be at least 2 characters")
-    results = search_scans_by_query(db, q)
-    return {"results": results, "count": len(results)}
+    # Escape LIKE wildcards so user input cannot widen the match pattern.
+    escaped_q = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped_q}%"
+    return (
+        db.query(models.ScanResult)
+        .filter(
+            models.ScanResult.owner_id == current_user.id,
+            or_(
+                models.ScanResult.title.like(pattern, escape="\\"),
+                models.ScanResult.description.like(pattern, escape="\\"),
+                models.ScanResult.cve_id.like(pattern, escape="\\"),
+            ),
+        )
+        .all()
+    )
 
 
 @app.get("/scans/{scan_id}", response_model=ScanOut)
@@ -218,10 +279,27 @@ def get_scan(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    scan = db.query(models.ScanResult).filter(models.ScanResult.id == scan_id).first()
+    scan = db.query(models.ScanResult).filter(
+        models.ScanResult.id == scan_id,
+        models.ScanResult.owner_id == current_user.id,
+    ).first()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
     return scan
+
+
+@app.get("/share/{token}", response_model=PublicScanOut)
+def get_shared_scan(token: str, password: Optional[str] = None, db: Session = Depends(get_db)):
+    share_link = db.query(models.SharedScanLink).filter(
+        models.SharedScanLink.token == token,
+    ).first()
+    if not share_link or share_link.expires_at <= datetime.utcnow():
+        raise HTTPException(status_code=404, detail="Shared scan not found")
+    if share_link.password_hash and (
+        password is None or not verify_password(password, share_link.password_hash)
+    ):
+        raise HTTPException(status_code=401, detail="Password required or invalid")
+    return share_link.scan
 
 
 @app.patch("/scans/{scan_id}", response_model=ScanOut)

@@ -19,4 +19,10 @@ env/
 .coverage
 htmlcov/
 node_modules/
+.terraform/
+.tflint.d/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
 .claude/

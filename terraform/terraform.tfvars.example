@@ -1,0 +1,16 @@
+location                         = "westeurope"
+name_prefix                      = "vulntracker"
+image                            = "myregistry.azurecr.io/vulntracker-api@sha256:replace-with-real-digest"
+key_vault_name                   = "vulntracker-kv"
+key_vault_resource_group_name    = "security-rg"
+api_port                         = 8000
+public_base_url                  = "http://10.42.1.10:8000"
+allowed_ingress_cidr              = "10.42.0.0/16"
+vnet_address_space                = ["10.42.0.0/16"]
+aci_subnet_name                   = "aci"
+aci_subnet_address_prefixes       = ["10.42.1.0/24"]
+private_endpoint_subnet_name      = "private-endpoints"
+private_endpoint_subnet_address_prefixes = ["10.42.2.0/24"]
+notify_service_url               = "http://vulntracker-notify:3001"
+secret_key_name                  = "secret-key"
+notify_service_key_name          = "notify-service-key"

@@ -1,0 +1,3 @@
+[[IgnoredVulns]]
+id = "GHSA-wj6h-64fc-37mp"
+reason = "Accepted residual risk: ecdsa is an indirect dependency of python-jose, the application uses HS256 only, and the advisory has no upstream fix. Reassess if ECDSA signing or verification is introduced."
