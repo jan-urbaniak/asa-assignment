@@ -94,8 +94,9 @@ jobs:
             --user "$(id -u):$(id -g)" \
             --volume "$PWD:/src" \
             --workdir /src \
-            ghcr.io/google/osv-scanner:latest \
-            scan -L requirements.txt -L notify/package-lock.json --format json \
+            ghcr.io/google/osv-scanner:v2.5.1 \
+            scan --config .osv-scanner.toml \
+            -L requirements.txt -L notify/package-lock.json --format json \
             --output-file reports/sca.osv-scanner.json
 
       - name: Upload OSV-Scanner report
