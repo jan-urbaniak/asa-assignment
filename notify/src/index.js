@@ -1,4 +1,7 @@
 const express = require('express');
+const crypto = require('crypto');
+const dns = require('dns').promises;
+const net = require('net');
 const { v4: uuidv4 } = require('uuid');
 const { dispatch } = require('./dispatcher');
 const config = require('./config');
@@ -10,11 +13,83 @@ app.use(express.json());
 const webhooks = new Map();
 
 
+function isPrivateAddress(address) {
+  if (net.isIP(address) === 4) {
+    const octets = address.split('.').map(Number);
+    return octets[0] === 0
+      || octets[0] === 10
+      || octets[0] === 127
+      || octets[0] >= 224
+      || (octets[0] === 169 && octets[1] === 254)
+      || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
+      || (octets[0] === 192 && octets[1] === 168);
+  }
+
+  if (net.isIP(address) === 6) {
+    const normalized = address.toLowerCase();
+    return normalized === '::1'
+      || normalized === '::'
+      || normalized.startsWith('fc')
+      || normalized.startsWith('fd')
+      || normalized.startsWith('fe80:')
+      || normalized.startsWith('::ffff:127.');
+  }
+
+  return true;
+}
+
+
+async function validateWebhookUrl(value) {
+  let target;
+  try {
+    target = new URL(value);
+  } catch {
+    return false;
+  }
+
+  if (target.protocol !== 'https:' || target.username || target.password || !target.hostname) {
+    return false;
+  }
+
+  if (net.isIP(target.hostname)) {
+    return !isPrivateAddress(target.hostname);
+  }
+
+  try {
+    const addresses = await dns.lookup(target.hostname, { all: true, verbatim: true });
+    return addresses.length > 0 && addresses.every(({ address }) => !isPrivateAddress(address));
+  } catch {
+    return false;
+  }
+}
+
+
+function requireServiceKey(req, res, next) {
+  const suppliedKey = req.get('X-Service-Key');
+  const expectedKey = Buffer.from(config.SERVICE_KEY);
+  const receivedKey = Buffer.from(suppliedKey || '');
+
+  if (receivedKey.length !== expectedKey.length
+    || !crypto.timingSafeEqual(receivedKey, expectedKey)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  return next();
+}
+
+
+app.use('/webhooks', requireServiceKey);
+app.use('/notify', requireServiceKey);
+
+
 // Register a webhook endpoint to receive VulnTracker events
-app.post('/webhooks', (req, res) => {
+app.post('/webhooks', async (req, res) => {
   const { url, events, metadata } = req.body;
 
   if (!url) return res.status(400).json({ error: 'url is required' });
+  if (!await validateWebhookUrl(url)) {
+    return res.status(400).json({ error: 'url must be a public HTTPS endpoint' });
+  }
   if (!Array.isArray(events) || events.length === 0) {
     return res.status(400).json({ error: 'events must be a non-empty array' });
   }

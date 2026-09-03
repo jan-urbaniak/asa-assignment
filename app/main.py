@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 import models
 from auth import create_access_token, get_current_user, get_password_hash, verify_password
-from config import NOTIFY_SERVICE_URL
+from config import NOTIFY_SERVICE_KEY, NOTIFY_SERVICE_URL
 from database import engine, get_db, search_scans_by_query
 
 logging.basicConfig(level=logging.INFO)
@@ -140,6 +140,7 @@ def _fire_notify(event: str, payload: dict) -> None:
         httpx.post(
             f"{NOTIFY_SERVICE_URL}/notify",
             json={"event": event, "payload": payload},
+            headers={"X-Service-Key": NOTIFY_SERVICE_KEY},
             timeout=5.0,
         )
     except Exception as exc:

@@ -7,9 +7,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+os.environ.setdefault("NOTIFY_SERVICE_KEY", "test-notify-service-key")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
 from database import Base, get_db  # noqa: E402
+import main  # noqa: E402
 from main import app  # noqa: E402
 import models  # noqa: E402
 
@@ -110,6 +112,19 @@ def test_create_scan():
     }, headers=auth_headers(token))
     assert resp.status_code == 201
     assert resp.json()["title"] == "Reflected XSS in search"
+
+
+def test_scan_notification_uses_service_key(monkeypatch):
+    requests = []
+
+    def capture_notification(*args, **kwargs):
+        requests.append((args, kwargs))
+
+    monkeypatch.setattr(main.httpx, "post", capture_notification)
+    token = register_and_login()
+    create_scan_for_user(token)
+
+    assert requests[0][1]["headers"] == {"X-Service-Key": "test-notify-service-key"}
 
 
 def test_create_and_retrieve_unprotected_share_link():

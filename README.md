@@ -47,6 +47,7 @@ The API must be started from inside the `app/` directory — the modules use bar
 
 ```bash
 cd app
+export NOTIFY_SERVICE_KEY="<shared-long-random-secret>"
 uvicorn main:app --reload
 ```
 
@@ -63,6 +64,7 @@ pytest tests/ -v
 ```bash
 cd notify
 npm install
+export NOTIFY_SERVICE_KEY="<same-shared-long-random-secret>"
 npm start
 ```
 
