@@ -224,6 +224,26 @@ def test_list_scans():
     assert len(resp.json()) == 1
 
 
+def test_get_scan_returns_owned_scan():
+    token = register_and_login()
+    scan_id = create_scan_for_user(token)
+
+    resp = client.get(f"/scans/{scan_id}", headers=auth_headers(token))
+
+    assert resp.status_code == 200
+    assert resp.json()["id"] == scan_id
+
+
+def test_get_scan_rejects_non_owner():
+    owner_token = register_and_login("alice", "alice@example.com", "password123")
+    scan_id = create_scan_for_user(owner_token)
+
+    other_token = register_and_login("bob", "bob@example.com", "password456")
+    resp = client.get(f"/scans/{scan_id}", headers=auth_headers(other_token))
+
+    assert resp.status_code == 404
+
+
 def test_search_scans():
     token = register_and_login()
     client.post("/scans", json={
