@@ -43,6 +43,65 @@ jobs:
         run: npm test
         working-directory: notify
 
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: [test, test-notify]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build FastAPI image
+        run: docker build --tag vulntracker-api:${{ github.sha }} .
+
+      - name: Create container report directory
+        run: mkdir -p reports
+
+      - name: Scan FastAPI image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: vulntracker-api:${{ github.sha }}
+          scanners: vuln
+          format: json
+          output: reports/container.trivy.json
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 1
+
+      - name: Upload Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: container.trivy.json
+          path: reports/container.trivy.json
+          if-no-files-found: error
+
+      - name: Start FastAPI container
+        run: |
+          docker run --detach --rm \
+            --name vulntracker-api-ci \
+            --publish 8000:8000 \
+            --env SECRET_KEY="ci-only-test-signing-key" \
+            --env NOTIFY_SERVICE_KEY="ci-only-test-service-key" \
+            --env PUBLIC_BASE_URL="http://localhost:8000" \
+            vulntracker-api:${{ github.sha }}
+
+      - name: Verify container health endpoint
+        run: |
+          for attempt in {1..15}; do
+            if curl --fail --silent http://127.0.0.1:8000/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs vulntracker-api-ci
+          exit 1
+
+      - name: Stop FastAPI container
+        if: always()
+        run: docker stop vulntracker-api-ci || true
+
+
+
   sast:
     runs-on: ubuntu-latest
 
@@ -115,12 +174,7 @@ jobs:
             | length == 0
           ' reports/sca.osv-scanner.json
 
-  # TODO (candidates): Add the following security scanning jobs.
-  #
-  # container-scan:
-  #   Build the Docker image, then scan it for vulnerabilities and misconfigurations
-  #   Upload JSON report as a build artifact named container.<tool>.json
-  #
+  # TODO (candidate): Add the following security scanning job.
   # iac-scan:
   #   Scan the Helm chart or Terraform configuration for security misconfigurations
   #   Upload JSON report as a build artifact named iac.<tool>.json

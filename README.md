@@ -79,6 +79,39 @@ cd notify
 npm test
 ```
 
+**Build and run the Python API container**
+
+Build the pinned Python 3.11 image from the repository root:
+
+```bash
+docker build --tag vulntracker-api:local .
+```
+
+Run it while supplying secrets at runtime from a local `.env` file. The file is
+ignored by git and is intentionally not included in the image or committed to
+the repository:
+
+```bash
+cat > .env <<'EOF'
+SECRET_KEY=<long-random-jwt-signing-secret>
+NOTIFY_SERVICE_KEY=<shared-long-random-secret>
+PUBLIC_BASE_URL=http://localhost:8000
+EOF
+
+docker run --rm --publish 8000:8000 \
+	--env-file .env \
+	vulntracker-api:local
+```
+
+The API is then available at `http://localhost:8000`; the container health
+status is checked through `GET /health`.
+
+Passing secrets as `docker run --env KEY=value` arguments is acceptable for a
+local smoke test, but it can expose values in shell history, CI logs, or process
+inspection. Use an ignored env file locally and a Docker/Kubernetes secrets
+mechanism in production. Never put real credentials in the Dockerfile, image,
+README, or workflow source.
+
 ---
 
 ## Your Tasks
