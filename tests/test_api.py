@@ -225,7 +225,6 @@ def test_list_scans():
 
 
 def test_search_scans():
-    # TODO: add assertions for search results
     token = register_and_login()
     client.post("/scans", json={
         "title": "SQL Injection via login",
@@ -234,6 +233,62 @@ def test_search_scans():
     }, headers=auth_headers(token))
     resp = client.get("/scans/search?q=SQL", headers=auth_headers(token))
     assert resp.status_code == 200
+    titles = [scan["title"] for scan in resp.json()]
+    assert titles == ["SQL Injection via login"]
+
+
+def test_search_scans_is_scoped_to_owner():
+    owner_token = register_and_login("alice", "alice@example.com", "password123")
+    client.post("/scans", json={
+        "title": "Owner-only finding",
+        "severity": "high",
+        "affected_component": "internal service",
+    }, headers=auth_headers(owner_token))
+
+    other_token = register_and_login("bob", "bob@example.com", "password456")
+    resp = client.get("/scans/search?q=Owner", headers=auth_headers(other_token))
+
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_search_scans_rejects_sql_injection_payload():
+    token = register_and_login()
+    client.post("/scans", json={
+        "title": "Legitimate finding",
+        "severity": "low",
+        "affected_component": "misc",
+    }, headers=auth_headers(token))
+
+    injection_payload = "x'; DROP TABLE scan_results; --"
+    resp = client.get("/scans/search", params={"q": injection_payload}, headers=auth_headers(token))
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+    # The scan_results table must survive the injection attempt.
+    follow_up = client.get("/scans", headers=auth_headers(token))
+    assert follow_up.status_code == 200
+    assert len(follow_up.json()) == 1
+
+
+def test_search_scans_escapes_like_wildcards():
+    token = register_and_login()
+    client.post("/scans", json={
+        "title": "foo_bar",
+        "severity": "low",
+        "affected_component": "misc",
+    }, headers=auth_headers(token))
+    client.post("/scans", json={
+        "title": "fooxbar",
+        "severity": "low",
+        "affected_component": "misc",
+    }, headers=auth_headers(token))
+
+    resp = client.get("/scans/search?q=foo_bar", headers=auth_headers(token))
+
+    assert resp.status_code == 200
+    titles = [scan["title"] for scan in resp.json()]
+    assert titles == ["foo_bar"]
 
 
 def test_update_scan_status():

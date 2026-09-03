@@ -8,12 +8,13 @@ import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 import models
 from auth import create_access_token, get_current_user, get_password_hash, verify_password
 from config import NOTIFY_SERVICE_KEY, NOTIFY_SERVICE_URL
-from database import engine, get_db, search_scans_by_query
+from database import engine, get_db
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -252,7 +253,7 @@ def create_share_link(
     return ShareOut(share_url=f"{str(request.base_url).rstrip('/')}/share/{share_link.token}")
 
 
-@app.get("/scans/search")
+@app.get("/scans/search", response_model=List[ScanOut])
 def search_scans(
     q: str,
     db: Session = Depends(get_db),
@@ -260,8 +261,21 @@ def search_scans(
 ):
     if not q or len(q) < 2:
         raise HTTPException(status_code=400, detail="Search query must be at least 2 characters")
-    results = search_scans_by_query(db, q)
-    return {"results": results, "count": len(results)}
+    # Escape LIKE wildcards so user input cannot widen the match pattern.
+    escaped_q = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped_q}%"
+    return (
+        db.query(models.ScanResult)
+        .filter(
+            models.ScanResult.owner_id == current_user.id,
+            or_(
+                models.ScanResult.title.like(pattern, escape="\\"),
+                models.ScanResult.description.like(pattern, escape="\\"),
+                models.ScanResult.cve_id.like(pattern, escape="\\"),
+            ),
+        )
+        .all()
+    )
 
 
 @app.get("/scans/{scan_id}", response_model=ScanOut)
